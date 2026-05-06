@@ -20,8 +20,8 @@ Make sure the daemon is up and the models are pulled:
 
 ```bash
 ollama serve &                 # if not already running
-ollama pull qwen3-coder        # default worker model
-ollama pull qwen3              # default planner model
+ollama pull qwen3.5:9b         # default worker model  (fast, code-capable)
+ollama pull qwen3.5:27b        # default planner model (stronger reasoning)
 ```
 
 To use a hosted provider instead, edit `.env`:
@@ -44,11 +44,14 @@ python main.py /path/to/your/project --goal "让所有测试通过并把 lint �
 
 Optional flags:
 
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `--model` | `$ADA_MODEL` or `gpt-4o-mini` | Override LLM model |
-| `--steps` | `80` | Max tool-loop iterations |
-| `--cmd-timeout` | `120` | Per-shell-command timeout (s) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--goal TEXT` | _(ask Ada)_ | High-level improvement objective |
+| `--model MODEL` | `$ADA_WORKER_MODEL` | Worker LLM name |
+| `--planner MODEL` | `$ADA_PLANNER_MODEL` | Planner LLM name |
+| `--steps N` | `80` | Max tool-loop iterations |
+| `--cmd-timeout SEC` | `120` | Per-shell-command timeout |
+| `--no-auto-branch` | — | Stay on current branch |
 
 ## What Ada writes
 
@@ -65,35 +68,70 @@ A persistent workspace is created at `<target>/.ada/`:
 └── questions.md        open questions for the human
 ```
 
-You can stop and resume across sessions — Ada re-reads these on next launch.
+Artifacts survive across sessions — Ada re-reads them on the next launch.
 
-Two tiers, both default to **local Ollama**:
+---
+
+## Web UI
+
+Ada ships with a single-page application for a richer experience.
 
 ```bash
-export ADA_WORKER_MODEL=qwen3-coder   # drives the tool loop (fast, code-tuned)
-export ADA_PLANNER_MODEL=qwen3 p` | Read-only exploration |
-| `write_file`, `edit_file` | Targeted changes (sandboxed to target dir) |
-| `run_command` | Install / build / test / bench / lint |
-| `git_status`, `git_diff`, `git_create_branch`, `git_commit`, `git_revert` | Version-control workflow (auto-branch on launch, commit per verified change) |
-| `consult_planner` | Escalate hard planning/design questions to the stronger planner model |
-| `update_artifact`, `append_journal`, `append_metric`, `read_artifact` | Maintain `.ada/` artifacts |
-| `ask_user` | Pause for human input |
-| `finish` | Declare convergence with a final summary |
+python server.py --port 7878
+# then open http://127.0.0.1:7878
+```
 
-All file paths are sandboxed inside the target directory; attempts to escape
-raise `PermissionError`.
+**Features:** live SSE feed, worker/planner model dropdowns (auto-populated from
+Ollama), directory picker modal, `ask_user` feedback panel, Stop button.
+
+---
+
+## Tool catalogue
+
+All file and shell tools are sandboxed inside the target directory.
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `list_dir` | Read | List directory entries; dirs suffixed with `/` |
+| `read_file` | Read | Read file with line numbers (<=800 lines/call) |
+| `grep` | Read | Regex search across all text files |
+| `write_file` | Write | Create or overwrite a file |
+| `edit_file` | Write | Replace exactly one occurrence of a string |
+| `run_command` | Shell | Execute a shell command; output tail-truncated to 8 KB |
+| `git_status` | Git | Show branch + short status |
+| `git_diff` | Git | Working-tree or staged diff (capped at 12 KB) |
+| `git_create_branch` | Git | Create and check out a branch |
+| `git_commit` | Git | Stage all changes and commit |
+| `git_revert` | Git | Hard-reset to a ref (**destructive**) |
+| `update_artifact` | Workspace | Overwrite a `.ada/` artifact file |
+| `append_journal` | Workspace | Append a timestamped entry to `journal.md` |
+| `append_metric` | Workspace | Append a row to `metrics.csv` |
+| `read_artifact` | Workspace | Read a `.ada/` artifact |
+| `consult_planner` | Multi-model | Ask the stronger planner model for advice |
+| `ask_user` | Control | Pause and ask the human for input |
+| `finish` | Control | Declare task complete with a final summary |
 
 ## Multi-model routing
 
-Set two models for cost/quality balance:
+Ada uses a two-tier architecture: a fast **Worker** drives the tool loop every
+step; a stronger **Planner** is called on demand via `consult_planner`.
 
 ```bash
-export ADA_WORKER_MODEL=gpt-4o-mini   # drives the tool loop (cheap, fast)
-export ADA_PLANNER_MODEL=gpt-4o       # one-shot advisor on hard questions
+# Local Ollama
+export ADA_WORKER_MODEL=qwen3.5:9b
+export ADA_PLANNER_MODEL=qwen3.5:27b
+
+# Or per-run via CLI
+python main.py . --model qwen3.5:9b --planner qwen3-coder:30b
 ```
 
-Or pass `--model` and `--planner` on the CLI. If only `ADA_MODEL` is set,
-both tiers fall back to it.
+Recommended combinations:
+
+| Worker | Planner | Speed | Quality |
+|--------|---------|-------|---------|
+| `qwen3.5:9b` | `qwen3.5:27b` | Fast | Good |
+| `qwen3.5:9b` | `qwen3-coder:30b` | Medium | Better |
+| `qwen3-coder:30b` | `qwen3-coder:30b` | Slow | Best |
 
 ## Git workflow
 
@@ -132,13 +170,25 @@ python main.py examples/demo_project --goal "让所有 pytest 测试通过，不
 
 ```
 .
-├── prompt.md           # Ada's behaviour spec (system prompt)
-├── main.py             # CLI entry
-├── ada/
-│   ├── agent.py        # main loop
-│   ├── llm.py          # OpenAI-compatible client
-│   ├── tools.py        # tool implementations + JSON schemas
-│   └── workspace.py    # .ada/ artifact manager + path sandbox
+├── prompt.md            Ada's behaviour specification (system prompt)
+├── main.py              CLI entry point
+├── server.py            Flask web server (SSE + REST)
 ├── requirements.txt
-└── .env.example
+├── .env.example         Configuration template
+├── ARCHITECTURE.md      Technical design deep-dive
+│
+├── ada/
+│   ├── __init__.py      Public API: `from ada import Ada`
+│   ├── agent.py         Tool-calling loop + Ada class
+│   ├── llm.py           LLM client (worker + planner routing)
+│   ├── tools.py         18 tool implementations + JSON schemas
+│   ├── workspace.py     .ada/ artifact manager + path sandbox
+│   └── git_ops.py       Git CLI wrapper
+│
+├── web/
+│   └── index.html       Single-page application
+│
+└── examples/
+    ├── run_demo.sh      Demo helper script
+    └── demo_project/    Buggy project for testing Ada
 ```
