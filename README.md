@@ -192,3 +192,9 @@ python main.py examples/demo_project --goal "让所有 pytest 测试通过，不
     ├── run_demo.sh      Demo helper script
     └── demo_project/    Buggy project for testing Ada
 ```
+
+---
+
+## License
+
+[MIT](LICENSE) \u00a9 2026 Jiang Shengyu
