@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.ada/
+examples/demo_project/.ada/
+examples/demo_project/.git/
