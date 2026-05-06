@@ -197,4 +197,4 @@ python main.py examples/demo_project --goal "让所有 pytest 测试通过，不
 
 ## License
 
-[MIT](LICENSE) \u00a9 2026 Jiang Shengyu
+[MIT](LICENSE) © 2026 Jiangsheng Yu
