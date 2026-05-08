@@ -5,7 +5,7 @@ Architecture overview
 Each browser session maps to a ``SessionState`` object that owns:
 
   * ``q``               — thread-safe queue of SSE payloads
-  * ``feedback_event``  — threading.Event unblocked when user sends feedback
+  * ``_pending_feedback`` — per-ask one-shot queue for user replies
   * ``stop_requested``  — threading.Event set by the Stop button
 
 Ada runs in a **daemon thread** per session.  The thread monkey-patches the
@@ -93,9 +93,12 @@ class SessionState:
 
         # SSE output queue — capped so a slow browser can't fill RAM.
         self.q: queue.Queue[str] = queue.Queue(maxsize=2000)
-        # Feedback channel: Ada blocks here until the user sends a reply.
-        self.feedback_event = threading.Event()
-        self.feedback_value: str = ""
+        # Feedback channel: each ask_user pushes a request and blocks on a
+        # one-shot reply queue.  Using a per-request queue avoids races where
+        # one feedback could clobber another, or be cleared before the Ada
+        # thread reads it.
+        self._feedback_lock = threading.Lock()
+        self._pending_feedback: queue.Queue[str] | None = None
         # Set by /api/stop to ask the Ada thread to exit gracefully.
         self.stop_requested = threading.Event()
 
@@ -117,15 +120,37 @@ class SessionState:
             pass  # consumer (browser) too slow — drop rather than block
 
     def give_feedback(self, text: str) -> None:
-        """Inject *text* as the answer to a pending ``ask_user`` call."""
-        self.feedback_value = text
-        self.feedback_event.set()
+        """Inject *text* as the answer to a pending ``ask_user`` call.
+
+        Late or duplicate feedback (i.e. no ``ask_user`` is currently
+        waiting) is silently ignored to avoid contaminating future asks.
+        """
+        with self._feedback_lock:
+            pending = self._pending_feedback
+        if pending is None:
+            return
+        try:
+            pending.put_nowait(text)
+        except queue.Full:
+            pass  # Ada side already received an answer; ignore.
 
     def wait_for_feedback(self, timeout: float = 300.0) -> str:
-        """Block until ``give_feedback`` is called or *timeout* expires."""
-        self.feedback_event.wait(timeout=timeout)
-        self.feedback_event.clear()
-        return self.feedback_value
+        """Block until ``give_feedback`` is called or *timeout* expires.
+
+        Each invocation creates a fresh single-slot queue so concurrent or
+        sequential ``ask_user`` calls never inherit a stale value.
+        """
+        slot: queue.Queue[str] = queue.Queue(maxsize=1)
+        with self._feedback_lock:
+            self._pending_feedback = slot
+        try:
+            return slot.get(timeout=timeout)
+        except queue.Empty:
+            return ""
+        finally:
+            with self._feedback_lock:
+                if self._pending_feedback is slot:
+                    self._pending_feedback = None
 
 
 # ── Ada agent wrapper (runs in a background thread) ───────────────────────────

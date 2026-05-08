@@ -32,9 +32,12 @@ class MemoryStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._tls = threading.local()
-        # Bootstrap schema in the calling thread; subsequent threads
-        # initialise lazily via the property below.
-        self._connect().executescript(
+        # Bootstrap schema in the calling thread; cache that connection
+        # in _tls so we don't leak an orphan on first use. Other threads
+        # initialise lazily via the property below (each gets its own
+        # _tls slot — threading.local() guarantees no cross-thread races).
+        boot = self._connect()
+        boot.executescript(
             """
             CREATE TABLE IF NOT EXISTS memory (
                 ns      TEXT NOT NULL,
@@ -45,6 +48,7 @@ class MemoryStore:
             );
             """
         )
+        self._tls.conn = boot
 
     # ── connection management ──────────────────────────────────────────
 

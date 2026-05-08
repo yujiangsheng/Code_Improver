@@ -166,6 +166,7 @@ class Git:
         Returns a dict describing the outcome:
 
         * ``{"committed": False, "reason": "no staged changes"}`` — nothing to commit.
+        * ``{"committed": False, "reason": "<state> in progress"}`` — repo is mid-merge/rebase/cherry-pick.
         * ``{"committed": True, "sha": "<12-char SHA>", "message": "..."}`` — success.
 
         Raises
@@ -173,6 +174,18 @@ class Git:
         GitError
             If ``git commit`` itself fails (e.g. no user.email configured).
         """
+        # Refuse to commit while another operation is in flight; otherwise
+        # the resulting commit silently completes a merge / rebase step the
+        # user did not authorise.
+        for marker, label in (
+            ("MERGE_HEAD", "merge"),
+            ("REBASE_HEAD", "rebase"),
+            ("CHERRY_PICK_HEAD", "cherry-pick"),
+            ("REVERT_HEAD", "revert"),
+        ):
+            if (self.repo_dir / ".git" / marker).exists():
+                return {"committed": False, "reason": f"{label} in progress"}
+
         self._git("add", "-A")  # stage everything including new files
 
         # Check whether there is actually anything staged (avoids empty commits).

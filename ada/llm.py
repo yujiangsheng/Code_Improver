@@ -27,9 +27,25 @@ Any OpenAI-compatible endpoint works.  Set:
 from __future__ import annotations
 
 import os
-from typing import Any
+import random
+import time
+from typing import Any, Callable
 
-from openai import OpenAI
+from openai import (
+    OpenAI,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
+
+# Exception classes considered transient and worth retrying.
+_RETRYABLE_EXC: tuple[type[BaseException], ...] = (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 # ── defaults ─────────────────────────────────────────────────────────────────
 # Target a local Ollama daemon so Ada works out-of-the-box without an API key.
@@ -122,6 +138,31 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _retry_call(fn: Callable[[], Any]) -> Any:
+    """Invoke *fn* with exponential backoff on transient API errors.
+
+    Reads ``ADA_LLM_RETRY_ATTEMPTS`` (default 5) and
+    ``ADA_LLM_RETRY_BASE`` (default 1.0s).  Backoff is
+    ``base * 2**attempt`` capped at 32s, plus 0-25% jitter.
+    Non-retryable exceptions propagate immediately.
+    """
+    attempts = max(1, _env_int("ADA_LLM_RETRY_ATTEMPTS", 5))
+    base = max(0.1, _env_float("ADA_LLM_RETRY_BASE", 1.0))
+    last_exc: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except _RETRYABLE_EXC as exc:
+            last_exc = exc
+            if attempt == attempts - 1:
+                break
+            delay = min(32.0, base * (2 ** attempt))
+            delay += delay * random.uniform(0.0, 0.25)
+            time.sleep(delay)
+    assert last_exc is not None  # for type-checkers
+    raise last_exc
+
+
 def _client(api_key: str | None, base_url: str | None) -> OpenAI:
     """Build a shared OpenAI SDK client, resolving config from env as needed."""
     timeout = _env_float("ADA_LLM_TIMEOUT", DEFAULT_REQUEST_TIMEOUT)
@@ -187,13 +228,13 @@ class LLM:
         ChatCompletion
             Raw OpenAI SDK response object.
         """
-        resp = self.client.chat.completions.create(
+        resp = _retry_call(lambda: self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             tools=tools,
             tool_choice="auto",
             temperature=temperature,
-        )
+        ))
         self._record(resp)
         return resp
 
@@ -252,11 +293,11 @@ class Planner:
         str
             Planner's advice text (stripped of leading/trailing whitespace).
         """
-        resp = self.client.chat.completions.create(
+        resp = _retry_call(lambda: self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
-        )
+        ))
         self.usage["requests"] += 1
         u = getattr(resp, "usage", None)
         if u is not None:

@@ -23,6 +23,12 @@ from dataclasses import dataclass
 _DANGER_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\brm\s+(-[a-zA-Z]*[rRf][a-zA-Z]*)\s+(/|~|\$HOME|\.|\*)",
      "rm -rf on root, home, cwd, or wildcard"),
+    # Catch rm -rf with command substitution / variable expansion targets.
+    (r"\brm\s+-[a-zA-Z]*[rRf][a-zA-Z]*\s+[\"']?\$[\w({]",
+     "rm -rf with variable/command-substitution target"),
+    (r"\bfind\s+\S+.*-delete\b", "find … -delete"),
+    (r"\bfind\s+\S+.*-exec\s+rm\b", "find … -exec rm"),
+    (r"\balias\s+\w+\s*=", "shell alias redefinition"),
     (r"\bsudo\b", "sudo escalation"),
     (r"\bchmod\s+-R\s+0?7?77\b", "chmod -R 777"),
     (r"\bchown\s+-R\b", "recursive chown"),

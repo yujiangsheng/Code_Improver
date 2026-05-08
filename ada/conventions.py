@@ -6,11 +6,16 @@ convention files, concatenate their contents, and inject them into the
 kickoff prompt so the agent sees them every run without the user having to
 restate them.
 
+Loaded text is **sanitized** before injection (control chars stripped,
+fence markers neutralised) so a malicious or sloppy convention file cannot
+trivially escape its section and rewrite Ada's system prompt.
+
 The list is deliberately short — repos that need richer rules can drop a
 single ``AGENTS.md`` summarising their conventions.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -25,14 +30,26 @@ _CONVENTION_FILES: tuple[str, ...] = (
 _PER_FILE_CAP = 8000          # bytes
 _TOTAL_CAP = 16000            # bytes across all files combined
 
+# Strip ASCII control chars (except \n and \t) — they have no business in
+# a markdown convention file and can be used to confuse log viewers /
+# downstream renderers.
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+# Neutralise our own boundary marker style so a convention file can't fake
+# the closing fence and continue with text that looks like a top-level
+# instruction to the LLM.
+_FENCE_RE = re.compile(r"^={3,}\s*(end|begin)\s+conventions?\b.*$",
+                       re.IGNORECASE | re.MULTILINE)
+
+
+def _sanitize(text: str) -> str:
+    text = _CTRL_RE.sub("", text)
+    text = _FENCE_RE.sub("(fence-marker neutralised)", text)
+    return text
+
 
 def load_conventions(root: Path) -> str:
-    """Return a markdown blob of every detected convention file (or empty).
-
-    The returned string is empty when no files are found, which lets the
-    caller append it conditionally without leaving a blank section in the
-    prompt.
-    """
+    """Return a sanitized markdown blob of every detected convention file."""
     root = Path(root)
     chunks: list[str] = []
     used = 0
@@ -44,7 +61,7 @@ def load_conventions(root: Path) -> str:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        text = text.strip()
+        text = _sanitize(text).strip()
         if not text:
             continue
         if len(text) > _PER_FILE_CAP:
