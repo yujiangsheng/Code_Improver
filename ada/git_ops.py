@@ -89,6 +89,32 @@ class Git:
         """Return the short-format status including branch info."""
         return self._git("status", "--short", "--branch")
 
+    def changed_files(self, ref: str = "HEAD") -> list[str]:
+        """Return paths modified vs *ref* (staged + unstaged + untracked).
+
+        Combines ``git diff --name-only`` against *ref* with
+        ``git ls-files --others --exclude-standard`` so newly-created
+        files (which never appear in ``diff``) are still reported.
+        """
+        out: list[str] = []
+        try:
+            out.extend(
+                p for p in self._git("diff", "--name-only", ref).splitlines() if p
+            )
+        except GitError:
+            pass
+        try:
+            out.extend(
+                p for p in self._git(
+                    "ls-files", "--others", "--exclude-standard"
+                ).splitlines() if p
+            )
+        except GitError:
+            pass
+        # Dedup, preserve order.
+        seen: set[str] = set()
+        return [p for p in out if not (p in seen or seen.add(p))]
+
     def diff(
         self, paths: list[str] | None = None, staged: bool = False
     ) -> str:

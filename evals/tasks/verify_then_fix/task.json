@@ -1,0 +1,7 @@
+{
+  "goal": "Run pytest, see what's failing, then fix the bug in calculator.py. Do NOT change the tests.",
+  "verify_cmd": "python3 -m pytest -q",
+  "max_steps": 15,
+  "timeout_sec": 600,
+  "description": "Verify-then-fix loop: forces the model to use run_tests before editing."
+}

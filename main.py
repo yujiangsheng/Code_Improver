@@ -1,9 +1,14 @@
-"""CLI entry point for Ada \u2014 autonomous code-improvement agent.
+"""CLI entry point for Ada — autonomous code-improvement agent.
 
 Usage examples
 --------------
 # Improve a project using local Ollama (default):
-python main.py /path/to/project --goal "\u8ba9\u6240\u6709\u6d4b\u8bd5\u901a\u8fc7\u5e76\u6d88\u9664 lint \u8b66\u544a"
+python main.py /path/to/project --goal "让所有测试通过并消除 lint 警告"
+
+# Switch to a hosted provider via a built-in profile:
+python main.py /path/to/project --profile openai     # gpt-4o-mini / gpt-4o
+python main.py /path/to/project --profile deepseek   # deepseek-chat / deepseek-reasoner
+python main.py /path/to/project --profile anthropic  # claude-sonnet-4-5 / claude-opus-4-5
 
 # Use a specific model pair:
 python main.py /path/to/project \\
@@ -21,21 +26,26 @@ python main.py . --goal "Add type hints and docstrings throughout the ada/ packa
 python main.py /path/to/project --no-auto-branch
 
 Environment variables (set in .env or export):
-  OPENAI_BASE_URL    \u2014 API endpoint  (default: http://localhost:11434/v1)
-  OPENAI_API_KEY     \u2014 API key       (default: ollama)
-  ADA_WORKER_MODEL   \u2014 worker model  (default: qwen3.5:9b)
-  ADA_PLANNER_MODEL  \u2014 planner model (default: qwen3.5:27b)
-  ADA_MAX_STEPS      \u2014 loop cap      (default: 80)
-  ADA_CMD_TIMEOUT    \u2014 shell timeout (default: 120)
+  ADA_PROFILE        — provider preset: ollama|openai|deepseek|moonshot|anthropic
+  OPENAI_BASE_URL    — API endpoint  (default: from profile or Ollama)
+  OPENAI_API_KEY     — API key       (default: from profile or 'ollama')
+  ADA_WORKER_MODEL   — worker model  (default: from profile)
+  ADA_PLANNER_MODEL  — planner model (default: from profile)
+  ADA_MAX_STEPS      — loop cap      (default: 80)
+  ADA_CMD_TIMEOUT    — shell timeout (default: 120)
+  ADA_COMPACT_TOKENS — compact when prompt exceeds N tokens (default: 24000)
+  ADA_KEEP_RECENT    — tail messages kept verbatim (default: 20)
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from dotenv import load_dotenv
 
 from ada import Ada
+from ada.llm import PROFILES
 
 
 def main() -> int:
@@ -56,6 +66,15 @@ def main() -> int:
     parser.add_argument(
         "target_dir",
         help="Directory containing the code to improve.",
+    )
+    parser.add_argument(
+        "--profile", default=None,
+        choices=sorted(PROFILES.keys()),
+        help=(
+            "Provider preset.  Sets defaults for OPENAI_BASE_URL / API key / "
+            "worker / planner.  Explicit env vars and CLI flags still win.  "
+            "Equivalent to setting ADA_PROFILE."
+        ),
     )
     parser.add_argument(
         "--goal", default="",
@@ -90,6 +109,13 @@ def main() -> int:
         help="Skip auto-creating an ada/<timestamp> working branch.",
     )
     args = parser.parse_args()
+
+    # Apply --profile by setting the env var BEFORE importing/constructing Ada
+    # components that read it.  ada.llm._apply_profile() reruns on demand.
+    if args.profile:
+        os.environ["ADA_PROFILE"] = args.profile
+        from ada import llm as _llm
+        _llm._apply_profile()
 
     ada = Ada(
         target_dir=args.target_dir,

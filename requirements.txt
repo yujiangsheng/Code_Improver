@@ -2,3 +2,9 @@ openai>=1.40.0
 python-dotenv>=1.0.0
 rich>=13.7.0
 flask>=3.0.0
+tiktoken>=0.7.0
+# Optional: enables semantic tools (list_symbols / find_definition /
+# find_references / ts_edit) for JS/TS/Go/Rust/Java/C/C++ in addition to
+# Python.  If missing, those tools degrade gracefully with an error message.
+tree-sitter>=0.23
+tree-sitter-language-pack>=0.7

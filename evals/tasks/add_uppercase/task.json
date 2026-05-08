@@ -1,0 +1,7 @@
+{
+  "goal": "Add a function `uppercase_words(text)` to text_utils.py that returns the input string with each word capitalized (first letter uppercase, rest lowercase). 'hello world' -> 'Hello World'. Then make sure all tests pass.",
+  "verify_cmd": "python3 -m pytest -q",
+  "max_steps": 15,
+  "timeout_sec": 600,
+  "description": "Implement a missing function whose tests already exist."
+}

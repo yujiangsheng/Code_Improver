@@ -1,0 +1,7 @@
+{
+  "goal": "There is a failing test in test_stats.py — find the bug in stats.py and fix it so all tests pass. Run pytest to verify.",
+  "verify_cmd": "python3 -m pytest -q",
+  "max_steps": 20,
+  "timeout_sec": 600,
+  "description": "Single-file logic bug. mean() uses sum(xs)/len(xs)-1 (off-by-one). Should be /len(xs)."
+}

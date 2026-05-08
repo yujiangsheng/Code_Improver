@@ -1,0 +1,7 @@
+{
+  "goal": "Find the function that handles retry/backoff logic somewhere in this project. Make it so the maximum number of attempts is configurable via a parameter `max_attempts` (default 5). Update the existing tests if needed and add one new test for max_attempts=2. All tests must pass.",
+  "verify_cmd": "python3 -m pytest -q",
+  "max_steps": 25,
+  "timeout_sec": 600,
+  "description": "Tests semantic_search recall: the file is named 'network.py' and the function uses the term 'sleep_and_redo' instead of 'retry'."
+}

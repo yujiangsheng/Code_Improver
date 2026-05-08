@@ -1,0 +1,7 @@
+{
+  "goal": "Rename the class `OldName` to `NewName` everywhere in the project — definition, every import, every usage. Then make sure tests pass.",
+  "verify_cmd": "python3 -m pytest -q && ! grep -rn OldName --include='*.py' .",
+  "max_steps": 25,
+  "timeout_sec": 600,
+  "description": "Cross-file rename: tests cross-file edits + import updates."
+}
